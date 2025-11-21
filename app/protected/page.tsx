@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
@@ -40,6 +41,24 @@ export default function ProtectedPage() {
   const [rechargeOpen, setRechargeOpen] = useState(false)
   const [paymentVerifyOpen, setPaymentVerifyOpen] = useState(false)
   const [orderNo, setOrderNo] = useState<string | null>(null)
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true)
+
+  // Check authentication
+  useEffect(() => {
+    const checkAuth = async () => {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      if (!user) {
+        router.push('/login')
+        return
+      }
+      
+      setIsCheckingAuth(false)
+    }
+    
+    checkAuth()
+  }, [router])
 
   // Check for payment callback
   useEffect(() => {
@@ -52,9 +71,11 @@ export default function ProtectedPage() {
 
   // Fetch user credits on mount
   useEffect(() => {
-    fetchCredits()
-    fetchHistory()
-  }, [])
+    if (!isCheckingAuth) {
+      fetchCredits()
+      fetchHistory()
+    }
+  }, [isCheckingAuth])
 
   const fetchCredits = async () => {
     try {
@@ -230,6 +251,15 @@ export default function ProtectedPage() {
 
   const handleRechargeSuccess = () => {
     fetchCredits()
+  }
+
+  // Show loading while checking auth
+  if (isCheckingAuth) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    )
   }
 
   return (

@@ -1,11 +1,29 @@
 'use client'
 
-import { MoveRight, PhoneCall } from 'lucide-react'
+import { MoveRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { motion } from 'framer-motion'
+import { useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
+import { useState } from 'react'
 
 function Hero() {
+  const router = useRouter()
+  const [isChecking, setIsChecking] = useState(false)
+
+  const handleGetStarted = async () => {
+    setIsChecking(true)
+    const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    
+    if (user) {
+      router.push('/protected')
+    } else {
+      router.push('/login')
+    }
+    setIsChecking(false)
+  }
   const fadeInUps = {
     hidden: { opacity: 0, y: 20 },
     visible: { opacity: 1, y: 0 },
@@ -39,14 +57,13 @@ function Hero() {
             </motion.div>
 
             <motion.div className="flex flex-col sm:flex-row gap-4" variants={fadeInUps}>
-              <Button size="lg" className="gap-2 h-12 px-8 text-base shadow-lg hover:shadow-xl transition-all hover:-translate-y-1 w-full sm:w-auto" variant="outline">
-                联系我们 <PhoneCall className="w-4 h-4" />
-              </Button>
               <Button
                 size="lg"
                 className="gap-2 h-12 px-8 text-base shadow-lg hover:shadow-xl transition-all hover:-translate-y-1 bg-primary text-primary-foreground hover:bg-primary/90 w-full sm:w-auto"
+                onClick={handleGetStarted}
+                disabled={isChecking}
               >
-                立即开始 <MoveRight className="w-4 h-4" />
+                {isChecking ? '加载中...' : '立即开始'} <MoveRight className="w-4 h-4" />
               </Button>
             </motion.div>
           </motion.div>
