@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { Suspense, useState, useEffect } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
@@ -23,7 +23,7 @@ type GeneratedImage = {
 // 任务状态类型
 type TaskStatus = 'PENDING' | 'RUNNING' | 'SUSPENDED' | 'SUCCEEDED' | 'FAILED' | 'UNKNOWN'
 
-export default function ProtectedPage() {
+function ProtectedPageContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
 
@@ -409,5 +409,19 @@ export default function ProtectedPage() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  )
+}
+
+export default function ProtectedPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center min-h-screen">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      }
+    >
+      <ProtectedPageContent />
+    </Suspense>
   )
 }
