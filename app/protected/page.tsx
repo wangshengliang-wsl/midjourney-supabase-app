@@ -1,12 +1,16 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
 import { ImageIcon, Loader2, Plus, Sparkles, Zap, Download } from 'lucide-react'
 import { ImageSkeleton } from '@/components/ui/image-skeleton'
 import { ImagePreview } from '@/components/image-preview'
+import { RechargeDialog } from '@/components/recharge-dialog'
+import { PaymentVerifyDialog } from '@/components/payment-verify-dialog'
+import { AlertDialog, AlertDialogAction, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 
 // 生成的图片数据类型
 type GeneratedImage = {
@@ -19,13 +23,81 @@ type GeneratedImage = {
 type TaskStatus = 'PENDING' | 'RUNNING' | 'SUSPENDED' | 'SUCCEEDED' | 'FAILED' | 'UNKNOWN'
 
 export default function ProtectedPage() {
+  const searchParams = useSearchParams()
+  const router = useRouter()
+
   const [prompt, setPrompt] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
-  const [credits, setCredits] = useState(5)
+  const [credits, setCredits] = useState(0)
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([])
   const [currentPrompt, setCurrentPrompt] = useState('')
   const [previewOpen, setPreviewOpen] = useState(false)
   const [previewIndex, setPreviewIndex] = useState(0)
+  const [isLoadingCredits, setIsLoadingCredits] = useState(true)
+  const [isLoadingHistory, setIsLoadingHistory] = useState(true)
+  const [alertOpen, setAlertOpen] = useState(false)
+  const [alertMessage, setAlertMessage] = useState('')
+  const [rechargeOpen, setRechargeOpen] = useState(false)
+  const [paymentVerifyOpen, setPaymentVerifyOpen] = useState(false)
+  const [orderNo, setOrderNo] = useState<string | null>(null)
+
+  // Check for payment callback
+  useEffect(() => {
+    const order = searchParams.get('order')
+    if (order) {
+      setOrderNo(order)
+      setPaymentVerifyOpen(true)
+    }
+  }, [searchParams])
+
+  // Fetch user credits on mount
+  useEffect(() => {
+    fetchCredits()
+    fetchHistory()
+  }, [])
+
+  const fetchCredits = async () => {
+    try {
+      setIsLoadingCredits(true)
+      const response = await fetch('/api/credits')
+      const data = await response.json()
+
+      if (response.ok) {
+        setCredits(data.credits || 0)
+      } else {
+        console.error('Fetch credits error:', data.error)
+      }
+    } catch (error) {
+      console.error('Fetch credits error:', error)
+    } finally {
+      setIsLoadingCredits(false)
+    }
+  }
+
+  const fetchHistory = async () => {
+    try {
+      setIsLoadingHistory(true)
+      const response = await fetch('/api/history?limit=1')
+      const data = await response.json()
+
+      if (response.ok && data.history && data.history.length > 0) {
+        const latestRecord = data.history[0]
+        if (latestRecord.status === 'completed' && latestRecord.image_urls) {
+          const images = latestRecord.image_urls.map((url: string, index: number) => ({
+            id: `${latestRecord.id}-${index}`,
+            url: url,
+            prompt: latestRecord.prompt,
+          }))
+          setGeneratedImages(images)
+          setCurrentPrompt(latestRecord.prompt)
+        }
+      }
+    } catch (error) {
+      console.error('Fetch history error:', error)
+    } finally {
+      setIsLoadingHistory(false)
+    }
+  }
 
   // Poll task status until completed
   const pollTaskStatus = async (taskId: string): Promise<GeneratedImage[]> => {
@@ -69,12 +141,14 @@ export default function ProtectedPage() {
 
   const handleGenerate = async () => {
     if (!prompt.trim()) {
-      alert('请输入提示词')
+      setAlertMessage('请输入提示词')
+      setAlertOpen(true)
       return
     }
 
     if (credits <= 0) {
-      alert('点数不足，请充值')
+      setAlertMessage('点数不足，请充值')
+      setAlertOpen(true)
       return
     }
 
@@ -83,7 +157,7 @@ export default function ProtectedPage() {
     setGeneratedImages([]) // Clear previous results
 
     try {
-      // Step 1: Create task
+      // Step 1: Create task (credits will be deducted in API)
       const createResponse = await fetch('/api/generate-image', {
         method: 'POST',
         headers: {
@@ -107,11 +181,18 @@ export default function ProtectedPage() {
       const images = await pollTaskStatus(taskId)
 
       setGeneratedImages(images)
-      setCredits((prev) => Math.max(0, prev - 1))
+
+      // Refresh credits and history after successful generation
+      await fetchCredits()
+      await fetchHistory()
     } catch (error) {
       console.error('Generation error:', error)
-      alert(error instanceof Error ? error.message : '生成图片失败，请重试')
+      setAlertMessage(error instanceof Error ? error.message : '生成图片失败，请重试')
+      setAlertOpen(true)
       setGeneratedImages([])
+
+      // Refresh credits in case of error (might have been refunded)
+      await fetchCredits()
     } finally {
       setIsGenerating(false)
     }
@@ -131,8 +212,24 @@ export default function ProtectedPage() {
       window.URL.revokeObjectURL(blobUrl)
     } catch (error) {
       console.error('Download error:', error)
-      alert('下载失败，请重试')
+      setAlertMessage('下载失败，请重试')
+      setAlertOpen(true)
     }
+  }
+
+  const handlePaymentVerifyClose = () => {
+    setPaymentVerifyOpen(false)
+    setOrderNo(null)
+
+    // Remove order parameter from URL
+    router.replace('/protected')
+
+    // Refresh credits
+    fetchCredits()
+  }
+
+  const handleRechargeSuccess = () => {
+    fetchCredits()
   }
 
   return (
@@ -161,7 +258,7 @@ export default function ProtectedPage() {
             </div>
 
             <div className="flex gap-2">
-              <Button variant="outline" size="sm" className="gap-1">
+              <Button variant="outline" size="sm" className="gap-1" onClick={() => setRechargeOpen(true)}>
                 <Plus className="h-4 w-4" />
                 充值
               </Button>
@@ -262,6 +359,25 @@ export default function ProtectedPage() {
 
       {/* 图片预览弹框 */}
       <ImagePreview images={generatedImages} initialIndex={previewIndex} open={previewOpen} onOpenChange={setPreviewOpen} onDownload={handleDownload} />
+
+      {/* 充值弹框 */}
+      <RechargeDialog open={rechargeOpen} onOpenChange={setRechargeOpen} onSuccess={handleRechargeSuccess} />
+
+      {/* 支付验证弹框 */}
+      {orderNo && <PaymentVerifyDialog orderNo={orderNo} open={paymentVerifyOpen} onClose={handlePaymentVerifyClose} onSuccess={handleRechargeSuccess} />}
+
+      {/* 提示对话框 */}
+      <AlertDialog open={alertOpen} onOpenChange={setAlertOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>提示</AlertDialogTitle>
+            <AlertDialogDescription>{alertMessage}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction>确定</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
